@@ -7,10 +7,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 
 # Import your helpers and models
 from PostgresSql.database import get_db, Base, engine
@@ -40,148 +36,114 @@ logger = logging.getLogger(__name__)
 # Initialize router
 router = APIRouter()
 
-# SlowAPI limiter
-limiter = Limiter(key_func=get_remote_address)
-router.state.limiter = limiter
-router.add_middleware(SlowAPIMiddleware)
-
-# Rate limit exception handler
-def _rate_limit_exceeded_handler(request, exc):
-    return JSONResponse(
-        status_code=429,
-        content={"detail": "Rate limit exceeded. Try again later."}
-    )
-
-router.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# ***************************** update this endpoint only access this api endpoint first decrypt the jwt token and if the and verify the role is admin and email is same as Admincredentials model says then access endpoints 
+# ── Reusable Auth Dependency ─────────────────────────────
+# Extract this repeated block into ONE dependency function
+def verify_admin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> str:
+    """Verify JWT token and confirm user is an admin. Returns the admin email."""
+    
+    token = credentials.credentials
+    
+    # 1. Verify Token
+    payload = JasonWebToken.verifyAccessToken(token)
+    if not payload:
+        logger.warning("AUTH FAILURE: JWT could not be verified.")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # 2. Extract Email
+    try:
+        user_email = payload['data']['email']
+    except KeyError:
+        logger.error(f"STRUCTURE ERROR: 'email' not found in payload. Keys: {payload.keys()}")
+        raise HTTPException(status_code=422, detail="Token structure invalid")
+    
+    # 3. Check Admin Table
+    query = text('SELECT EXISTS(SELECT 1 FROM admin_table WHERE LOWER(email) = LOWER(:email))')
+    result = db.execute(query, {'email': user_email}).fetchone()
+    exists = result[0] if result else False
+    
+    if not exists:
+        logger.warning(f"PERMISSION DENIED: {user_email} is not an admin.")
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    logger.info(f"ADMIN VERIFIED: {user_email}")
+    return user_email
 
 
 @router.get('/api/admin/users')
-@limiter.limit('5/minute')
 def getAllUser(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    admin_email: str = Depends(verify_admin),
     db: Session = Depends(get_db)
 ):
-    token = credentials.credentials
-
-    # Verify token
-    payload = JasonWebToken.verifyAccessToken(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    userEmail = payload['data']['email']
-
-    # Get role
-    query = text('SELECT role FROM users WHERE email = :email')
-    result = db.execute(query, {'email': userEmail}).fetchone()
-
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    role = result[0]
-
-    # Check admin
-    if role != 'admin':
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # Get all users
-    query = text('SELECT * FROM users')
+    logger.info(f"GET ALL USERS — requested by {admin_email}")
+    
+    # Avoid SELECT * — only return safe columns
+    query = text('SELECT id, username, email, created_at FROM users')
     users = db.execute(query).mappings().all()
-
+    
+    logger.info(f"RETURNED {len(users)} users")
     return users
 
+
 @router.get('/api/admin/users/{user_id}')
-@limiter.limit('5/minute')
 def get_user(
     user_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    admin_email: str = Depends(verify_admin),
     db: Session = Depends(get_db)
 ):
-    token = credentials.credentials
-
-    # Verify token
-    payload = JasonWebToken.verifyAccessToken(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user_email = payload['data']['email']
-
-    # Get role of current user
-    query = text('SELECT role FROM users WHERE email = :email')
-    result = db.execute(query, {'email': user_email}).fetchone()
-
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    role = result[0]
-
-    # Check admin access
-    if role != 'admin':
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # Fetch requested user
-    query = text('SELECT * FROM users WHERE id = :id')
+    logger.info(f"GET USER {user_id} — requested by {admin_email}")
+    
+    query = text('SELECT id, username, email, created_at FROM users WHERE id = :id')
     user = db.execute(query, {'id': user_id}).mappings().fetchone()
-
+    
     if not user:
-        raise HTTPException(status_code=404, detail="Requested user not found")
+        logger.warning(f"USER NOT FOUND: id={user_id}")
+        raise HTTPException(status_code=404, detail="User not found")
+    
     return user
 
+
 @router.get('/api/admin/logs')
-@limiter.limit('5/minute')
-def logs(credentials:HTTPAuthorizationCredentials = Depends(security),db:Session=Depends(get_db)):
+def get_logs(
+    admin_email: str = Depends(verify_admin),
+):
+    logger.info(f"GET LOGS — requested by {admin_email}")
     
-    token = credentials.credentials
-    # Verify token
-    payload = JasonWebToken.verifyAccessToken(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user_email = payload['data']['email']
-
-    # Get role of current user
-    query = text('SELECT role FROM users WHERE email = :email')
-    result = db.execute(query, {'email': user_email}).fetchone()
-
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    role = result[0]
-
-    # Check admin access
-    if role != 'admin':
-        raise HTTPException(status_code=403, detail="Access denied")
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    log_path = os.path.join(BASE_DIR, '..', 'logs.log')
+    log_path = os.path.normpath(log_path)
     
-    with open(r'E:\Class Book\Secure-Software-Design-And-Engineering\Project\Backend\logs.log','r') as fs:
-        data = fs.read()
+    logger.info(f"READING LOG FILE: {log_path}")
     
-    return {'logs' : data}
+    try:
+        # Try UTF-8 first, fall back to Windows-1252, replace any remaining bad bytes
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                data = f.read()
+        except Exception:
+            with open(log_path, 'r', encoding='windows-1252', errors='replace') as f:
+                data = f.read()
 
+        logger.info("LOG FILE READ SUCCESSFUL")
+        return {'logs': data}
+    except FileNotFoundError:
+        logger.error(f"FILE NOT FOUND: {log_path}")
+        raise HTTPException(status_code=500, detail="Log file not found")
+    except Exception as e:
+        logger.error(f"UNEXPECTED ERROR reading logs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get('/api/admin/rooms')
-@limiter.limit('5/minute')
 def get_chat_rooms(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    admin_email: str = Depends(verify_admin),
     db: Session = Depends(get_db)
 ):
-    token = credentials.credentials
-    payload = JasonWebToken.verifyAccessToken(token)
-
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user_email = payload['data']['email']
-
-    result = db.execute(
-        text('SELECT role FROM users WHERE email = :email'),
-        {'email': user_email}
-    ).fetchone()
-
-    if not result:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    role = result[0]
-    if role != 'admin':
-        raise HTTPException(status_code=403, detail="Access denied")
-
+    logger.info(f"GET ROOMS — requested by {admin_email}")
+    
     rooms = db.execute(text('SELECT * FROM chat_rooms')).mappings().fetchall()
+    
+    logger.info(f"RETURNED {len(rooms)} rooms")
     return rooms

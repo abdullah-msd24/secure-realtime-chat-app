@@ -2,9 +2,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-SQL_CHAMY_DATABASE_URL= 'postgresql://postgres:Bright#1270@localhost/fastapi' # connection string
+SQL_CHAMY_DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/RealTimeChatApp'
 
-engine = create_engine(SQL_CHAMY_DATABASE_URL)
+engine = create_engine(SQL_CHAMY_DATABASE_URL, echo=True)  # echo=True prints SQL statements
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

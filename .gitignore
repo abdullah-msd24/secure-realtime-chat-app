@@ -1,3 +1,13 @@
+# Virtual environment
 Backend/venv/
+
+# Environment variables
+.env
 Backend/.env
-Backend/logs.log
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.pyc

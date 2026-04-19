@@ -1,3 +1,4 @@
+# for personal things i do like if the message contains @Name then perosnal to this user
 import os
 import logging
 from datetime import datetime, timedelta
@@ -7,10 +8,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 
 # Import your helpers and models
 from PostgresSql.database import get_db, Base, engine
@@ -43,52 +40,57 @@ logger = logging.getLogger(__name__)
 # Initialize router
 router = APIRouter()
 
-# SlowAPI limiter
-limiter = Limiter(key_func=get_remote_address)
-router.state.limiter = limiter
-router.add_middleware(SlowAPIMiddleware)
-
-# Rate limit exception handler
-def _rate_limit_exceeded_handler(request, exc):
-    return JSONResponse(
-        status_code=429,
-        content={"detail": "Rate limit exceeded. Try again later."}
-    )
-
-router.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-# ******************* EndPoints  ********************************************************
 
 
 @router.post("/api/chats/rooms")
-@limiter.limit("5/minute")
 def create_room(
-    payload: str,
+    payload: schemas.CreateRoomRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
     token = credentials.credentials
-    user_id = JasonWebToken.verifyAccessToken(token)['data']['id']
+    user_id = JasonWebToken.verifyAccessToken(token)["data"]["id"]
+
 
     # 1. Create room
     room = models.ChatRoom(
+        id= payload.id,
         name=payload.name,
         created_by=user_id
     )
+
     db.add(room)
     db.commit()
     db.refresh(room)
 
     # 2. Add creator as member
-    db.add(models.ChatMember(user_id=user_id, room_id=room.id))
+    db.add(models.ChatMember(
+        user_id=user_id,
+        room_id=room.id
+    ))
+
+    # 3. Add other members (IMPORTANT PART)
+    for email in payload.members:
+
+        user = db.query(models.User).filter(
+            models.User.email == email
+        ).first()
+
+        if user:
+            db.add(models.ChatMember(
+                user_id=user.id,
+                room_id=room.id
+            ))
+
     db.commit()
 
     return {
         "room_id": room.id,
         "name": room.name
     }
-    
+
+
 @router.post("/api/chats/messages")
-@limiter.limit("10/minute")
 def send_message(
     req: schemas.Messages,
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -123,7 +125,6 @@ def send_message(
     }
 
 @router.get("/api/chats/messages/{room_id}")
-@limiter.limit("15/minute")
 def get_messages(
     room_id: int,
     credentials: HTTPAuthorizationCredentials = Depends(security),
