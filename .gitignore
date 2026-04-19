@@ -1,4 +1,8 @@
-# Virtual environment
+# Node modules
+Frontend/node_modules/
+Frontend/.next/
+
+# Python virtual environment
 Backend/venv/
 
 # Environment variables
