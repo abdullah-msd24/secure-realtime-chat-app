@@ -1,5 +1,6 @@
-from pydantic import BaseModel,EmailStr
+from pydantic import BaseModel,EmailStr,StringConstraints
 from typing import List, Optional
+from typing import Annotated
 
 class Register(BaseModel):
     username : str
@@ -9,13 +10,13 @@ class Register(BaseModel):
 
 class Login(BaseModel):
     email : EmailStr
-    password : str
+    password : Annotated[str,StringConstraints(min_length=8,max_length=32)]
     
 class Messages(BaseModel):
-    room_id : str
-    message : str
+    name : str
+    message : Annotated[str,StringConstraints(min_length=3,max_length=1000)]
 
 class CreateRoomRequest(BaseModel):
-    id : str
+    id : int
     name: str
     members : Optional[List[str]] = []

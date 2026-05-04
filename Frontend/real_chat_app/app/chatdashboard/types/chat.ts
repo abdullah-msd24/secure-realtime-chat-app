@@ -1,7 +1,7 @@
 export type Message = {
   id: number;
   sender: string;
-  text: string;
+  content: string;
   time: string;
 };
 
@@ -11,7 +11,7 @@ export type Member = {
 };
 
 export type Room = {
-  id: string;
+  id: number;
   name: string;
   members: Member[];
 };

@@ -1,6 +1,6 @@
 # Node modules
-Frontend/node_modules/
-Frontend/.next/
+Frontend/real_chat_app/node_modules/
+Frontend/real_chat_app/.next/
 
 # Python virtual environment
 Backend/venv/

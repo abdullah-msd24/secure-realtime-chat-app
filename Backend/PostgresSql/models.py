@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, TIMESTAMP, Text, event
+from sqlalchemy import BigInteger, Column, Integer, String, ForeignKey, TIMESTAMP, Text, event
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from PostgresSql.database import Base
@@ -54,7 +54,7 @@ class AuditLog(Base):
 class ChatRoom(Base):
     __tablename__ = "chat_rooms"
 
-    id = Column(String, primary_key=True, index=True)  # UUID string
+    id = Column(BigInteger, primary_key=True, index=True)  # UUID string
     name = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -71,7 +71,7 @@ class ChatMember(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    room_id = Column(String, ForeignKey("chat_rooms.id"))  # ✅ FIXED
+    room_id = Column(BigInteger, ForeignKey("chat_rooms.id"))  # ✅ FIXED
     joined_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="chat_memberships")
@@ -86,7 +86,7 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True)
     sender_id = Column(Integer, ForeignKey("users.id"))
-    room_id = Column(String, ForeignKey("chat_rooms.id"))  # ✅ FIXED
+    room_id = Column(BigInteger, ForeignKey("chat_rooms.id"))  # ✅ FIXED
     content = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 

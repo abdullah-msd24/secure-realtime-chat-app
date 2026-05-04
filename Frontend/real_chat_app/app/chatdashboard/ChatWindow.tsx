@@ -1,142 +1,385 @@
 "use client";
 
-import { useState } from "react";
-import { Room, Message } from "./types/chat";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { Trash2, X, Users } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import axios from "axios";
+import { Room } from "./types/chat";
 import MessageInput from "./MessageInput";
 
 type Props = {
   room: Room;
 };
 
+type UserCache = Record<number, string>;
+
 export default function ChatWindow({ room }: Props) {
-  // ✅ FIX: safe fallback for undefined messages
-  const [messages, setMessages] = useState<Message[]>(
-    room?.messages ?? []
+  const [messages, setMessages] = useState<any[]>([]);
+  const [members, setMembers] = useState<string[]>([]);
+  const [showMembers, setShowMembers] = useState(false);
+
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+
+  const [userCache, setUserCache] = useState<UserCache>({});
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ✅ Stable api instance — defined once with useRef so it never triggers re-renders
+  const api = useRef(
+    axios.create({
+      baseURL: "http://localhost:8000",
+      timeout: 8000,
+    })
+  ).current;
+
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem("authToken");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
+
+  // =========================
+  // GET CURRENT USER (/auth/me)
+  // =========================
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        const res = await api.get("/api/auth/me", {
+          headers: getAuthHeaders(),
+        });
+        setCurrentUserId(res.data?.id ?? null);
+        setCurrentUsername(res.data?.username ?? null);
+      } catch {
+        setCurrentUserId(null);
+        setCurrentUsername(null);
+      }
+    };
+
+    fetchMe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // =========================
+  // USERNAME CACHE
+  // ✅ userCache removed from deps — we use the functional setter instead
+  // =========================
+  const getUsernameById = useCallback(
+    async (id: number): Promise<string> => {
+      if (!id) return "Unknown";
+
+      // Read from cache via ref-based lookup using setter trick
+      return new Promise((resolve) => {
+        setUserCache((prev) => {
+          if (prev[id]) {
+            resolve(prev[id]);
+            return prev; // no state change
+          }
+
+          // Cache miss — fetch async, then update
+          api
+            .get(`/api/auth/getuser/${id}`, { headers: getAuthHeaders() })
+            .then((res) => {
+              const username = res.data?.username ?? "Unknown";
+              setUserCache((p) => ({ ...p, [id]: username }));
+              resolve(username);
+            })
+            .catch(() => resolve("Unknown"));
+
+          return prev; // no state change while fetching
+        });
+      });
+    },
+    // ✅ api and getAuthHeaders are stable refs — safe deps
+    [api, getAuthHeaders]
   );
 
-  const [showMembers, setShowMembers] = useState<boolean>(false);
+  // =========================
+  // FETCH MESSAGES
+  // =========================
+  useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        setLoadingMessages(true);
+        setError(null);
 
+        const res = await api.get(`/api/chats/messages/${room.name}`, {
+          headers: getAuthHeaders(),
+        });
+
+        const raw = Array.isArray(res.data) ? res.data : [];
+
+        const enriched = await Promise.all(
+          raw.map(async (msg: any) => {
+            const senderId = Number(msg.sender_id);
+
+            const username =
+              senderId === currentUserId
+                ? currentUsername
+                : await getUsernameById(senderId);
+
+            return {
+              id: msg.id,
+              sender_id: senderId,
+              sender: username,
+              content: msg.content ?? msg.text ?? "",
+              created_at: msg.created_at ?? "",
+            };
+          })
+        );
+
+        setMessages(enriched);
+      } catch {
+        setError("Failed to load messages");
+      } finally {
+        setLoadingMessages(false);
+      }
+    };
+
+    if (room?.name) fetchMessages();
+  // ✅ getUsernameById is now stable so this won't loop
+  }, [room, currentUserId, currentUsername, getUsernameById, api, getAuthHeaders]);
+
+  // =========================
+  // FETCH MEMBERS
+  // =========================
+  useEffect(() => {
+    const fetchMembers = async () => {
+      try {
+        const res = await api.get(`/api/chats/rooms/${room.name}`, {
+          headers: getAuthHeaders(),
+        });
+
+        const ids: number[] = Array.isArray(res.data?.members)
+          ? res.data.members
+          : [];
+
+        const names = await Promise.all(ids.map((id) => getUsernameById(id)));
+        setMembers(names);
+      } catch {
+        setMembers([]);
+      }
+    };
+
+    if (room?.name) fetchMembers();
+  }, [room, getUsernameById, api, getAuthHeaders]);
+
+  // =========================
+  // REMOVE MEMBER
+  // =========================
+  const removeMember = async (usernameToRemove: string) => {
+    try {
+      await api.delete(
+        `api/chats/rooms/${room.name}/members/${usernameToRemove}`,
+        { headers: getAuthHeaders() }
+      );
+      setMembers((prev) => prev.filter((name) => name !== usernameToRemove));
+    } catch (error: any) {
+      console.error("Delete Error details:", error.response?.data);
+      alert(error.response?.data?.detail || "Failed to remove member");
+    }
+  };
+
+  // =========================
+  // SEND MESSAGE
+  // =========================
   const sendMessage = (text: string) => {
-    const newMsg: Message = {
+    const clean = text.trim();
+    if (!clean) return;
+
+    const newMsg = {
       id: Date.now(),
-      sender: "You",
-      text,
-      time: "Now",
+      sender_id: currentUserId,
+      sender: currentUsername,
+      content: clean,
+      created_at: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, newMsg]);
   };
 
-  return (
-    <div className="flex h-full relative bg-gray-50">
-      {/* MAIN CHAT */}
-      <div className="flex flex-col flex-1">
-        {/* HEADER */}
-        <div className="p-4 border-b bg-white flex items-center justify-between shadow-sm">
-          <div>
-            <h2 className="font-semibold text-lg">{room?.name}</h2>
+  // =========================
+  // HELPERS
+  // =========================
+  const isMe = (msg: any) =>
+    currentUserId !== null && Number(msg.sender_id) === Number(currentUserId);
 
-            {/* ✅ FIX: safe members */}
-            <p className="text-xs text-gray-500">
-              {(room?.members ?? []).length} members
-            </p>
+  const getInitial = (name: string) => name?.charAt(0)?.toUpperCase() || "U";
+
+  const formatTime = (t: string) => {
+    if (!t) return "";
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return t;
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // =========================
+  // UI
+  // =========================
+  return (
+    <div className="flex h-screen bg-gradient-to-br from-gray-100 to-gray-200">
+
+      {/* CHAT AREA */}
+      <div className="flex flex-col flex-1">
+
+        {/* HEADER */}
+        <div className="flex justify-between items-center px-5 py-3 bg-white shadow-md border-b">
+          <div>
+            <h1 className="font-semibold text-lg">{room.name}</h1>
+            <p className="text-xs text-gray-500">{members.length} members online</p>
           </div>
 
-          {/* CLICKABLE AVATARS */}
-          <div
-            onClick={() => setShowMembers(true)}
-            className="flex -space-x-2 cursor-pointer"
-          >
-            {/* ⚠️ SAFE MAP */}
-            {(room?.members ?? []).slice(0, 3).map((m, i) => (
+          <button onClick={() => setShowMembers(true)} className="flex -space-x-2">
+            {members.slice(0, 3).map((m, i) => (
               <div
                 key={i}
-                className="w-8 h-8 rounded-full bg-gray-300 border-2 border-white flex items-center justify-center text-xs"
+                className="w-9 h-9 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold border-2 border-white"
               >
-                {typeof m === "string" ? m[0] : "U"}
+                {getInitial(m)}
               </div>
             ))}
-          </div>
+          </button>
         </div>
 
         {/* MESSAGES */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {messages.map((msg) => {
-            const isMe = msg.sender === "You";
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {loadingMessages && (
+            <p className="text-gray-400 text-sm">Loading...</p>
+          )}
+
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
+          {messages.map((msg, i) => {
+            const mine = isMe(msg);
 
             return (
               <div
-                key={msg.id}
-                className={`flex ${
-                  isMe ? "justify-end" : "justify-start"
+                key={msg.id ?? i}
+                className={`flex items-end gap-2 ${
+                  mine ? "justify-end" : "justify-start"
                 }`}
               >
+                {/* AVATAR */}
+                {!mine && (
+                  <div className="w-9 h-9 rounded-full bg-gray-600 text-white flex items-center justify-center text-xs font-bold">
+                    {getInitial(msg.sender)}
+                  </div>
+                )}
+
+                {/* BUBBLE */}
                 <div
-                  className={`max-w-xs md:max-w-md px-4 py-3 rounded-2xl shadow-sm ${
-                    isMe
-                      ? "bg-blue-500 text-white rounded-br-sm"
-                      : "bg-white text-gray-800 border rounded-bl-sm"
+                  className={`px-4 py-2 max-w-xs md:max-w-md rounded-2xl shadow-sm ${
+                    mine
+                      ? "bg-blue-600 text-white rounded-br-sm"
+                      : "bg-white border text-gray-800 rounded-bl-sm"
                   }`}
                 >
-                  {!isMe && (
-                    <p className="text-xs font-semibold mb-1 text-gray-500">
-                      {msg.sender}
-                    </p>
+                  {!mine && (
+                    <p className="text-xs text-gray-500 mb-1">{msg.sender}</p>
                   )}
 
-                  <p className="text-sm">{msg.text}</p>
+                  <p className="text-sm break-words whitespace-pre-wrap">
+                    {msg.content}
+                  </p>
 
-                  <div
-                    className={`text-[10px] mt-2 ${
-                      isMe ? "text-blue-100" : "text-gray-400"
-                    }`}
-                  >
-                    {msg.time}
-                  </div>
+                  <p className="text-[10px] mt-1 opacity-60">
+                    {formatTime(msg.created_at)}
+                  </p>
                 </div>
               </div>
             );
           })}
+
+          <div ref={bottomRef} />
         </div>
 
         {/* INPUT */}
-        <div className="border-t bg-white p-4">
-          <MessageInput onSend={sendMessage} />
+        <div className="border-t bg-white p-3 shadow-inner">
+          <MessageInput onSend={sendMessage} name={room.name} />
         </div>
       </div>
 
-      {/* MEMBER PANEL */}
-      <div
-        className={`fixed top-0 right-0 h-full w-80 bg-white border-l shadow-lg transform transition-transform duration-300 z-50 ${
-          showMembers ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <div className="p-4 border-b flex justify-between items-center">
-          <h3 className="font-semibold">Members</h3>
-          <button onClick={() => setShowMembers(false)}>✕</button>
-        </div>
-
-        <div className="p-4 space-y-3 overflow-y-auto">
-          {(room?.members ?? []).map((member, index) => (
-            <div
-              key={index}
-              className="p-2 rounded hover:bg-gray-100"
-            >
-              {/* ✅ FIX: works for string members */}
-              <p className="text-sm font-medium">
-                {typeof member === "string" ? member : "User"}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* OVERLAY */}
+      {/* MEMBERS SIDEBAR */}
       {showMembers && (
-        <div
-          onClick={() => setShowMembers(false)}
-          className="fixed inset-0 bg-black/20 z-40"
-        />
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+            onClick={() => setShowMembers(false)}
+          />
+
+          {/* Sidebar */}
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="fixed right-0 top-0 h-full w-80 bg-white shadow-2xl z-50 flex flex-col"
+          >
+            {/* Sidebar Header */}
+            <div className="p-6 border-b flex items-center justify-between bg-gray-50">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                <h2 className="font-bold text-gray-800 text-lg">Room Members</h2>
+              </div>
+              <button
+                onClick={() => setShowMembers(false)}
+                className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Members List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              <AnimatePresence>
+                {members.map((m) => (
+                  <motion.div
+                    key={m}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="group flex items-center justify-between p-3 rounded-xl transition-all hover:bg-blue-50 hover:shadow-sm border border-transparent hover:border-blue-100"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 bg-gradient-to-tr from-blue-500 to-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-bold shadow-inner">
+                          {getInitial(m)}
+                        </div>
+                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full" />
+                      </div>
+                      <div>
+                        <span className="text-sm font-semibold text-gray-700 block">{m}</span>
+                        <span className="text-[10px] text-gray-400 uppercase tracking-wider">Member</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => removeMember(m)}
+                      className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                      title="Remove Member"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+
+            {/* Sidebar Footer */}
+            <div className="p-4 border-t bg-gray-50 text-center">
+              <p className="text-xs text-gray-400">Total Members: {members.length}</p>
+            </div>
+          </motion.div>
+        </>
       )}
     </div>
   );

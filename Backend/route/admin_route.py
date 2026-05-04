@@ -103,7 +103,7 @@ def get_user(
         logger.warning(f"USER NOT FOUND: id={user_id}")
         raise HTTPException(status_code=404, detail="User not found")
     
-    return user
+    return user['username']
 
 
 @router.get('/api/admin/logs')

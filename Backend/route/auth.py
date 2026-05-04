@@ -4,11 +4,13 @@ import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import Annotated  
+from fastapi import Path,status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import bcrypt
-
+from jose import JWTError    
 # Import your helpers and models
 from PostgresSql.database import get_db, Base, engine
 from PostgresSql import models
@@ -167,3 +169,102 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except Exception as e:
         logger.error(f"Fetch user error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+    
+@router.get('/api/auth/getuser/{user_id}')
+def get_specific_user(
+    user_id: Annotated[int, Path(gt=0)],
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    # ✅ 1. Verify & decode JWT token
+    token = credentials.credentials
+    try:
+        payload = JasonWebToken.verifyAccessToken(token)
+
+        if not payload["status"]:
+            raise HTTPException(status_code=401, detail=payload["message"])
+
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
+
+
+    # ✅ 3. Safe parameterized query
+    query = text("SELECT username FROM users WHERE id = :user_id")
+    result = db.execute(query, {"user_id": user_id}).fetchone()
+
+    # ✅ 4. Handle user not found
+    if result is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        'username': result[0]
+    }
+
+
+@router.post('/api/auth/verifyLogin')
+def DecodeJWTToken(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    try:
+        token = credentials.credentials
+
+        payload = JasonWebToken.verifyAccessToken(token)
+
+        if not payload or "status" not in payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token structure"
+            )
+
+        return {
+            "status": payload["status"],
+            "message": "Token is valid"
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired or invalid"
+        )
+    
+@router.post('/api/auth/verifyrule')
+def DecodeJWTToken(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    try:
+        token = credentials.credentials
+
+        payload = JasonWebToken.verifyAccessToken(token)
+
+        if not payload or "data" not in payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+        role = payload["data"].get("role")
+
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Role not found in token"
+            )
+
+        return {
+            "status": "success",
+            "role": role
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token verification failed"
+        )
