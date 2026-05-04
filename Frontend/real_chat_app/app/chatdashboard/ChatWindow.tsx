@@ -103,7 +103,6 @@ export default function ChatWindow({ room }: Props) {
       try {
         setLoadingMessages(true);
         setError(null);
-
         const res = await api.get(`/api/chats/messages/${room.name}`, {
           headers: getAuthHeaders(),
         });

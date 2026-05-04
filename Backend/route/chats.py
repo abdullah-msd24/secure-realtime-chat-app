@@ -9,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
+from sse_starlette import EventSourceResponse
+import asyncio
 # Import your helpers and models
 from PostgresSql.database import get_db, Base, engine
 from PostgresSql import models
@@ -247,37 +249,44 @@ def get_room(
 ):
     user_id = JasonWebToken.verifyAccessToken(credentials.credentials)['data']['id']
 
-    # Verify user belongs to room
-    query = text("""
-        SELECT * FROM chat_rooms 
-        WHERE created_by = :user_id AND name = :room_name
-    """)
-    
-    res_room = db.execute(query, {
-        'user_id': user_id,
-        'room_name': room_name
-    }).fetchone()
+    # 1️⃣ Get room
+    room = db.execute(
+        text("SELECT id, name FROM chat_rooms WHERE name = :room_name"),
+        {"room_name": room_name}
+    ).fetchone()
 
-    if not res_room:
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    room_id = room.id
+
+    # 2️⃣ Check membership (THIS IS THE FIX)
+    member = db.execute(
+        text("""
+            SELECT 1 FROM chat_members
+            WHERE user_id = :user_id AND room_id = :room_id
+        """),
+        {"user_id": user_id, "room_id": room_id}
+    ).fetchone()
+
+    if not member:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Get members of the room
-    members_query = text("""
-        SELECT user_id FROM chat_members 
-        WHERE room_id = :room_id
-    """)
-    
-    members = db.execute(members_query, {
-        'room_id': res_room.id
-    }).fetchall()
-
-    
+    # 3️⃣ Get members
+    members = db.execute(
+        text("""
+            SELECT user_id FROM chat_members 
+            WHERE room_id = :room_id
+        """),
+        {"room_id": room_id}
+    ).fetchall()
 
     return {
-        "room_id": res_room.id,
-        "name": res_room.name,
+        "room_id": room_id,
+        "name": room.name,
         "members": [m.user_id for m in members]
     }
+
 
 @router.post("/api/chats/rooms/{room_id}/members")
 def add_member(
@@ -339,7 +348,6 @@ def get_rooms(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    # 🔐 Verify token properly
     token = credentials.credentials
     payload = JasonWebToken.verifyAccessToken(token)
 
@@ -348,22 +356,36 @@ def get_rooms(
 
     user_id = payload["data"]["id"]
 
-    # 📦 Query
-    query = text("""
-        SELECT id,name
+    # 1️⃣ Created rooms
+    query1 = text("""
+        SELECT id, name
         FROM chat_rooms 
         WHERE created_by = :user_id
     """)
+    result = db.execute(query1, {"user_id": user_id}).mappings().all()
 
-    result = db.execute(query, {"user_id": user_id}).mappings().all()
+    # 2️⃣ Member rooms
+    query2 = text("""
+        SELECT r.id, r.name
+        FROM chat_members cm
+        JOIN chat_rooms r
+            ON r.id = cm.room_id
+        WHERE cm.user_id = :user_id
+    """)
+    result1 = db.execute(query2, {"user_id": user_id}).mappings().all()
 
-    # 🧼 Clean response (optional but better)
+    # 🔥 Convert + merge safely (remove duplicates)
+    room_map = {}
+
+    for r in result:
+        room_map[r["id"]] = dict(r)
+
+    for r in result1:
+        room_map[r["id"]] = dict(r)
+
     return {
-        "rooms": result
-        
+        "rooms": list(room_map.values())
     }
-
-
 @router.delete("/api/chats/rooms/{room_id}")
 def remove_room(
     room_id: str,
