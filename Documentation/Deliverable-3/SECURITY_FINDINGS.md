@@ -348,6 +348,21 @@ All findings are in **test files only** and are acceptable:
 
 ---
 
+### 9. Automated CI/CD Security Pipeline (CodeQL) ✅ PASS
+
+#### Configuration
+- **Platform:** GitHub Actions
+- **Tool:** GitHub CodeQL Default Setup
+- **Languages Scanned:** Python, JavaScript/TypeScript
+- **Trigger:** Automated on push/pull request
+
+#### Results
+**Status:** SECURE ✅
+- **Alerts Found:** 0
+- **Assessment:** The CodeQL semantic analysis confirmed the earlier Bandit findings. Both the FastAPI backend and Next.js frontend showed zero high, medium, or low-severity vulnerabilities in their data flow and logic.
+
+---
+
 ## Code Quality Metrics
 
 ### Test Coverage: 49%
