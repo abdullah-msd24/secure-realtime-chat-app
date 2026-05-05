@@ -109,8 +109,9 @@ secure-chat/
 │       └── lib/                # API client utilities and type definitions
 │
 └── Documentation/
-    ├── architecture.md         # System design and data flow diagrams
-    └── security-plan.md        # Threat model and security requirements
+    ├── Proposal.pdf         # System design and data flow diagrams
+    └── Security Requirements, Planning, and RiskManagement.pdf        # Threat model and security requirements
+    └── System_Architecture_Diagram.png
 ```
 
 ---
@@ -162,18 +163,17 @@ The frontend will be available at `http://localhost:3000`.
 ## 📸 Screenshots
 
 > _Admin Dashboard — room management, user monitoring, and system logs_
-
-<!-- Add screenshots here once deployed -->
-_Screenshots coming soon._
+<img width="953" height="415" alt="image" src="https://github.com/user-attachments/assets/bcabbda4-458b-45c7-bd92-6aa8e294ec7a" />
+<img width="1904" height="831" alt="image" src="https://github.com/user-attachments/assets/6d053a40-7ce7-44d1-afba-4fdf38a07cff" />
+<img width="1418" height="646" alt="image" src="https://github.com/user-attachments/assets/02f2c5ab-5302-4f79-aa75-204e1869bbaf" />
 
 ---
 
 ## 🔮 Roadmap
 
 - [ ] End-to-end encryption (client-side key exchange)
-- [ ] Rate limiting and brute-force protection middleware
-- [ ] Docker Compose for one-command deployment
-- [ ] Automated security testing with OWASP ZAP in CI pipeline
+- [ ] brute-force protection middleware
+- [ ] Automated security testing with static and dynamic tools 
 
 ---
 
@@ -187,9 +187,5 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
 **Hassan** — Cybersecurity Student @ GIKI, Pakistan
 Focused on **ML Security** and **Application Security**
-
-- GitHub: [@your-username](https://github.com/your-username)
-- LinkedIn: [your-linkedin](https://linkedin.com/in/your-linkedin)
-- Portfolio: [your-portfolio.dev](https://your-portfolio.dev)
 
 > _Open to Summer/Fall 2025 internship opportunities in ML Security and Application Security._
