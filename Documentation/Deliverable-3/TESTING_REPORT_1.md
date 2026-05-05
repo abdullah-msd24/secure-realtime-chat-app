@@ -25,7 +25,7 @@ This report documents the complete security testing and analysis process conduct
 | **Low Severity Issues** | 16 | ✅ False Positives (Test Data) |
 | **Code Coverage** | 49% | ✅ Good |
 | **Code Complexity Grade** | A (2.62/10) | ✅ Excellent |
-| **Testing Tools Used** | 4 | ✅ Complete Suite |
+| **Testing Tools Used** | 5 | ✅ Complete Suite |
 | **Reports Generated** | 3 | ✅ Comprehensive |
 | **Files Submitted** | 6 | ✅ All Complete |
 
@@ -142,6 +142,12 @@ radon mi . -o json
   - Lines covered/uncovered
   - Branch coverage
   - Coverage percentage by module
+ 
+#### Tool 5: GitHub CodeQL (via GitHub Actions)
+- **Purpose:** Deep semantic Static Application Security Testing (SAST)
+- **Scope:** Full repository scan (Python FastAPI backend & JavaScript Next.js frontend)
+- **Integration:** Automated CI/CD pipeline via GitHub Actions
+- **Result:** 0 alerts found across both codebases (Confirmed Bandit SAST results)
 
 **Installation:**
 ```bash
